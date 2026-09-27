@@ -230,6 +230,22 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
 .pl-prod.nuevo{border-color:var(--verde-borde);background:var(--verde-cl);color:var(--verde-osc)}
 .pl-prod.inactivo{border-color:var(--ambar-borde);background:var(--ambar-cl);color:var(--ambar)}
 
+/* Históricos */
+.dato-val.pos{color:var(--verde)}
+.dato-val.neg{color:var(--rojo)}
+.tabla-comp{width:100%;border-collapse:collapse;font-size:13px;min-width:520px}
+.tabla-comp th,.tabla-comp td{padding:7px 9px;border-bottom:1px solid var(--linea2);text-align:right;white-space:nowrap}
+.tabla-comp th{font-size:11px;letter-spacing:.03em;color:var(--texto2);font-weight:600;vertical-align:bottom}
+.tabla-comp th:first-child,.tabla-comp td:first-child{text-align:left;white-space:normal;min-width:130px}
+.tabla-comp tr.total td{font-weight:700;border-top:1.5px solid var(--linea)}
+.tabla-comp tr.sub td{color:var(--texto2);font-size:12.5px}
+.var-sube{color:var(--rojo);font-weight:600}
+.var-baja{color:var(--verde);font-weight:600}
+.var-sube.bueno{color:var(--verde)}
+.var-baja.bueno{color:var(--rojo)}
+.txt-pos{color:var(--verde);font-weight:600}
+.txt-neg{color:var(--rojo);font-weight:600}
+
 /* Modal */
 .modal-fondo{position:fixed;inset:0;background:rgba(20,20,15,.45);z-index:100;display:flex;align-items:center;justify-content:center;padding:1rem}
 .modal{background:#fff;border-radius:14px;padding:1.25rem;max-width:560px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.18)}
@@ -260,12 +276,11 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
 .pie strong{font-family:var(--serif);font-weight:600;color:var(--texto2)}
 
 .print-titulo{display:none}
+.solo-movil{display:none}
 @media print{
   .franja,#barra-carga,.cab-der,.tabs,.filtros,.alcance button,#avisos,.btn,.btn-mini,.btn-link,.no-imprimir{display:none!important}
   body{background:#fff;font-size:12px}
   .shell{max-width:100%;padding:0}
-  .panel{display:none!important}
-  #panel-resumen{display:block!important}
   .ts-cuerpo{display:block!important}
   .card,.ts,.metrica{box-shadow:none;break-inside:avoid}
   .print-titulo{display:block;font-family:var(--serif);font-size:17px;font-weight:600;text-align:center;margin-bottom:1rem}
@@ -283,6 +298,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
   .reg-der{flex-direction:row;justify-content:space-between;align-items:center;text-align:left}
   .cab-der{margin-left:0;width:100%;align-items:flex-start}
   .no-movil{display:none}
+  .solo-movil{display:block!important}
   .sync{justify-content:flex-start}
 }
 </style>
@@ -340,6 +356,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
       <button class="tab" type="button" data-tab="cultivos">🌱 Cultivos</button>
       <button class="tab" type="button" data-tab="catalogo">📋 Catálogo</button>
       <button class="tab" type="button" data-tab="resumen">📊 Resumen</button>
+      <button class="tab" type="button" data-tab="historicos">📚 Históricos</button>
     </nav>
 
     <!-- REGISTRO -->
@@ -505,6 +522,24 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
       <div class="alcance" id="res-alcance"></div>
       <div id="res-cuerpo"></div>
     </section>
+
+    <!-- HISTÓRICOS -->
+    <section class="panel" id="panel-historicos" hidden>
+      <div class="print-titulo" id="hi-print-titulo">AgroControl — Históricos por tabla</div>
+      <div class="card no-imprimir">
+        <div class="card-titulo">Históricos por tabla</div>
+        <div class="card-sub">Ciclos cerrados de cada tabla con sus resultados, y comparativo entre temporadas. En cultivos con cortes (alfalfa) también se muestra el ciclo activo.</div>
+        <div class="filtros" style="margin-bottom:0">
+          <select id="hi-tabla" aria-label="Tabla"></select>
+          <div class="acciones">
+            <button class="btn btn-sec" type="button" id="btn-hi-csv">⬇ Exportar CSV</button>
+            <button class="btn btn-sec" type="button" id="btn-hi-imprimir">🖨 Imprimir</button>
+          </div>
+        </div>
+      </div>
+      <div id="hi-alerta" class="alerta" hidden></div>
+      <div id="hi-cuerpo"></div>
+    </section>
   </main>
 </div>
 
@@ -527,7 +562,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
    Sin frameworks. Habla con el backend de Apps Script por POST (text/plain).
    ═════════════════════════════════════════════════════════════════════ */
 const API_VERSION = '1';
-const APP_VERSION = '6.0.0-f4';
+const APP_VERSION = '6.0.0-f5';
 const TZ = 'America/Mexico_City';
 const MS_MARCA = 60000;       // revisión de cambios en el servidor
 const MS_COLA = 30000;        // reintento de la cola sin señal
@@ -1974,6 +2009,165 @@ async function alternarCultivo(id) {
 }
 
 // ═════════════════════════════════════════════════════════════════════
+//  HISTÓRICOS POR TABLA (F5) — cálculo en el servidor
+// ═════════════════════════════════════════════════════════════════════
+const _hist = {};   // cache por tabla (se invalida cuando cambia la marca del servidor)
+
+function vacioNum(v) { return v === '' || v === null || v === undefined; }
+function valMx(v) { return vacioNum(v) ? null : mxn(v); }
+function datoMargen(m) {
+  if (vacioNum(m)) return dato('Margen bruto', null);
+  return '<div class="dato"><div class="dato-etq">Margen bruto</div><div class="dato-val ' + (m >= 0 ? 'pos' : 'neg') + '">' + mxn(m) + '</div></div>';
+}
+function variacion(ant, act, masEsBueno) {
+  if (vacioNum(ant) || vacioNum(act) || Number(ant) === 0) return '—';
+  const v = (Number(act) - Number(ant)) / Math.abs(Number(ant)) * 100;
+  const cls = v > 0 ? 'var-sube' : v < 0 ? 'var-baja' : '';
+  return '<span class="' + cls + (masEsBueno ? ' bueno' : '') + '">' + (v > 0 ? '▲ +' : v < 0 ? '▼ ' : '') + v.toFixed(1) + '%</span>';
+}
+
+function renderHistoricosSelector() {
+  if (!S.datos || $('panel-historicos').hidden) return;
+  const sel = $('hi-tabla'), previo = sel.value;
+  const tablas = S.datos.catalogos.tablas.slice().sort(porNombre);
+  sel.innerHTML = opciones(tablas.map(function (t) { return { v: t.id, t: t.nombre + (t.activa === false ? ' (desactivada)' : '') }; }), previo, '— Selecciona tabla —');
+  if (sel.value) cargarHistorico(false); else $('hi-cuerpo').innerHTML = '<div class="vacio"><strong>Elige una tabla</strong>Verás sus ciclos cerrados con resultados y el comparativo entre temporadas.</div>';
+}
+
+async function cargarHistorico(forzar) {
+  const id = $('hi-tabla').value;
+  if (!id) return;
+  const c = _hist[id];
+  if (c && !forzar && c.marca === S.marca) { renderHistorico(c.datos); return; }
+  if (navigator.onLine === false) {
+    if (c) { renderHistorico(c.datos); alerta('hi-alerta', 'Sin señal: se muestra el último histórico consultado en esta sesión.', 'aviso'); }
+    else alerta('hi-alerta', 'Para consultar históricos necesitas señal de internet.', 'err');
+    return;
+  }
+  alerta('hi-alerta', '');
+  $('hi-cuerpo').innerHTML = '<div class="vacio">Calculando…</div>';
+  barraCarga(40);
+  try {
+    const d = await api('getHistoricoTabla', { tabla_id: id });
+    _hist[id] = { marca: S.marca, datos: d };
+    if ($('hi-tabla').value === id) renderHistorico(d);
+    barraCarga(100);
+  } catch (e) {
+    barraCarga(100);
+    $('hi-cuerpo').innerHTML = '';
+    alerta('hi-alerta', msgErr(e), 'err');
+  }
+}
+
+function htmlCicloHistorico(c, ha) {
+  const u = c.unidad_rendimiento || '';
+  const rend = vacioNum(c.rendimiento) ? null : num(c.rendimiento) + ' ' + esc(u) + (vacioNum(c.rendimiento_ha) ? '' : '<div class="ayuda">' + num(c.rendimiento_ha) + ' ' + esc(u) + '/ha</div>');
+  let html = '<div class="ciclo' + (c.estado === 'activo' ? '' : ' cerrado') + '"><div class="ciclo-nombre">' + esc(c.nombre) + '</div>' +
+    '<div class="ciclo-meta"><span class="badge ' + (c.estado === 'activo' ? 'verde' : 'gris') + '">' + (c.estado === 'activo' ? 'Activo (en curso)' : 'Cerrado') + '</span>' +
+    '<span class="badge gris">' + esc(c.cultivo) + ' · ' + esc(c.temporada) + '</span><span>' + fmtFecha(c.fecha_apertura) + (c.fecha_cierre ? ' → ' + fmtFecha(c.fecha_cierre) : '') + '</span></div>' +
+    '<div class="datos">' +
+      dato('Total gastado', mxn(c.total_gastado)) + dato('Gastos', String(c.n_gastos)) +
+      dato('Costo / ha', ha ? mxn(c.costo_ha) : 'N/A') + dato('Rendimiento', rend) +
+      dato(c.cosechas_multiples ? 'Precio promedio' : 'Precio / unidad', valMx(c.precio_venta_unidad)) +
+      dato('Ingreso bruto', valMx(c.ingreso_bruto)) + datoMargen(c.margen_bruto) +
+    '</div>';
+  if (c.alfalfa) {
+    const x = c.alfalfa;
+    const fila = function (a, b, cc, d, e, f, cls) { return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><td>' + a + '</td><td>' + b + '</td><td>' + cc + '</td><td>' + d + '</td><td>' + e + '</td><td>' + f + '</td></tr>'; };
+    const margenTxt = function (m) { return vacioNum(m) ? '<span class="badge ambar">pendiente</span>' : '<span class="' + (m >= 0 ? 'txt-pos' : 'txt-neg') + '">' + mxn(m) + '</span>'; };
+    html += '<div class="sec">Resultado por corte</div><div class="envoltura-tabla"><table class="tabla-comp"><thead><tr><th>Periodo</th><th>Fecha</th><th>Rendimiento</th><th>Ingreso</th><th>Gasto asignado</th><th>Margen</th></tr></thead><tbody>' +
+      fila('Establecimiento', '≤ 1.er corte', '—', '—', mxn(x.establecimiento.gasto) + ' <span class="ayuda">(' + x.establecimiento.n_gastos + ')</span>', '—', 'sub') +
+      x.cortes.map(function (k) {
+        return fila('Corte ' + esc(k.numero_corte), fmtFecha(k.fecha), vacioNum(k.rendimiento) ? '<span class="badge ambar">pendiente</span>' : num(k.rendimiento) + ' ' + esc(k.unidad),
+          vacioNum(k.ingreso) ? '<span class="badge ambar">pendiente</span>' : mxn(k.ingreso), mxn(k.gasto) + ' <span class="ayuda">(' + k.n_gastos + ')</span>', margenTxt(k.margen));
+      }).join('') +
+      (x.por_asignar.n_gastos ? fila('Por asignar', 'después del último corte', '—', '—', mxn(x.por_asignar.gasto) + ' <span class="ayuda">(' + x.por_asignar.n_gastos + ')</span>', '—', 'sub') : '') +
+      '</tbody></table></div>' +
+      '<p class="ayuda" style="margin:-4px 0 8px">Cada gasto se asigna al corte siguiente a su fecha. Lo gastado hasta el 1.er corte es establecimiento; lo posterior al último corte espera al próximo corte.</p>' +
+      '<div class="sec">Resumen por año</div><div class="envoltura-tabla"><table class="tabla-comp"><thead><tr><th>Año</th><th>Cortes</th><th>Rendimiento</th><th>Ingreso</th><th>Gasto</th><th>Margen</th></tr></thead><tbody>' +
+      x.anual.map(function (a) { return fila(esc(a.anio), String(a.cortes), num(a.rendimiento) + ' ' + esc(u), mxn(a.ingreso), mxn(a.gasto), margenTxt(a.margen)); }).join('') +
+      '</tbody></table></div>';
+  }
+  return html + '</div>';
+}
+
+function htmlComparativo(d) {
+  const cs = d.ciclos.filter(function (c) { return c.estado === 'cerrado'; });
+  if (cs.length < 1) return '';
+  const ult = cs.length - 1, pen = cs.length - 2;
+  const conVar = cs.length >= 2;
+  const grupos = Object.keys(d.grupos).map(function (id) {
+    return { id: id, nombre: d.grupos[id], total: cs.reduce(function (s, c) { return s + (c.por_grupo[id] || 0); }, 0) };
+  }).filter(function (g) { return g.total > 0; }).sort(function (a, b) { return b.total - a.total; });
+  const col = function (f) { return cs.map(f).map(function (v) { return '<td>' + v + '</td>'; }).join(''); };
+  const vr = function (f, bueno) { return conVar ? '<td>' + variacion(f(cs[pen]), f(cs[ult]), bueno) + '</td>' : ''; };
+  const cab = '<tr><th>Concepto</th>' + cs.map(function (c) { return '<th>' + esc(c.temporada) + '<br><span style="font-weight:400">' + esc(c.cultivo) + '</span></th>'; }).join('') +
+    (conVar ? '<th>Var. ' + esc(cs[ult].temporada) + '<br>vs ' + esc(cs[pen].temporada) + '</th>' : '') + '</tr>';
+  const filasGrupo = grupos.map(function (g) {
+    return '<tr><td>' + esc(g.nombre) + '</td>' + col(function (c) { return c.por_grupo[g.id] ? mxn(c.por_grupo[g.id]) : '—'; }) + vr(function (c) { return c.por_grupo[g.id] || 0; }) + '</tr>';
+  }).join('');
+  const pend = '<span class="badge ambar">pendiente</span>';
+  const max = Math.max.apply(null, cs.map(function (c) { return c.total_gastado; }).concat([1]));
+  const barras = '<div class="barras">' + cs.map(function (c) {
+    return '<div class="barra-fila"><div class="barra-etq">' + esc(c.temporada) + '</div><div class="barra-fondo"><div class="barra" style="width:' +
+      (c.total_gastado / max * 100).toFixed(1) + '%"></div></div><div class="barra-val">' + mxn(c.total_gastado) + '</div></div>';
+  }).join('') + '</div>';
+  return '<div class="card"><div class="card-titulo">Comparativo entre temporadas (ciclos cerrados)</div>' + barras +
+    '<p class="ayuda solo-movil">↔ Desliza la tabla hacia los lados para ver todas las temporadas.</p><div class="envoltura-tabla"><table class="tabla-comp"><thead>' + cab + '</thead><tbody>' + filasGrupo +
+    '<tr class="total"><td>Total gastado</td>' + col(function (c) { return mxn(c.total_gastado); }) + vr(function (c) { return c.total_gastado; }) + '</tr>' +
+    (d.hectareas ? '<tr class="sub"><td>Costo / ha</td>' + col(function (c) { return mxn(c.costo_ha); }) + vr(function (c) { return c.costo_ha; }) + '</tr>' : '') +
+    '<tr class="sub"><td>Rendimiento</td>' + col(function (c) { return vacioNum(c.rendimiento) ? pend : num(c.rendimiento) + ' ' + esc(c.unidad_rendimiento); }) + vr(function (c) { return c.rendimiento; }, true) + '</tr>' +
+    '<tr class="sub"><td>Ingreso bruto</td>' + col(function (c) { return vacioNum(c.ingreso_bruto) ? pend : mxn(c.ingreso_bruto); }) + vr(function (c) { return c.ingreso_bruto; }, true) + '</tr>' +
+    '<tr class="total"><td>Margen bruto</td>' + col(function (c) { return vacioNum(c.margen_bruto) ? pend : '<span class="' + (c.margen_bruto >= 0 ? 'txt-pos' : 'txt-neg') + '">' + mxn(c.margen_bruto) + '</span>'; }) + vr(function (c) { return c.margen_bruto; }, true) + '</tr>' +
+    '</tbody></table></div>' +
+    (conVar ? '<p class="ayuda">Variación: en gastos, ▲ rojo = gastó más; en rendimiento, ingreso y margen, ▲ verde = mejoró.</p>' : '<p class="ayuda">Con dos o más ciclos cerrados aparece la variación entre temporadas.</p>') +
+    '</div>';
+}
+
+function renderHistorico(d) {
+  const t = d.tabla;
+  const cab = '<div class="card"><div class="card-titulo">' + esc(t.nombre) + ' <span class="badge verde">' + (vacioNum(t.extension) ? 'sin extensión' : num(t.extension) + ' ' + esc(t.unidad)) + '</span></div>' +
+    (d.hectareas ? '' : '<p class="ayuda">Esta tabla no está medida en hectáreas: el costo por hectárea no aplica.</p>') + '</div>';
+  if (!d.ciclos.length) {
+    $('hi-cuerpo').innerHTML = cab + '<div class="vacio"><strong>Sin ciclos cerrados</strong>Esta tabla todavía no tiene ciclos cerrados.</div>';
+    return;
+  }
+  const lista = d.ciclos.slice().reverse();   // el más reciente primero
+  $('hi-cuerpo').innerHTML = cab + htmlComparativo(d) +
+    '<div class="card"><div class="card-titulo">Ciclos (' + d.ciclos.length + ')</div>' + lista.map(function (c) { return htmlCicloHistorico(c, d.hectareas); }).join('') + '</div>';
+}
+
+function exportarHistoricoCSV() {
+  const id = $('hi-tabla').value, c = _hist[id];
+  if (!c || !c.datos.ciclos.length) { aviso('Primero consulta una tabla con ciclos.', 'err'); return; }
+  const d = c.datos;
+  const gids = Object.keys(d.grupos);
+  const enc = ['Tabla', 'Ciclo', 'Cultivo', 'Temporada', 'Estado', 'Apertura', 'Cierre', 'Total gastado', 'Núm. gastos', 'Costo/ha',
+    'Rendimiento', 'Unidad', 'Precio/unidad', 'Ingreso bruto', 'Margen bruto'].concat(gids.map(function (g) { return 'Gasto: ' + d.grupos[g]; }));
+  const celda = function (v) { return '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"'; };
+  const filas = d.ciclos.map(function (x) {
+    return [d.tabla.nombre, x.nombre, x.cultivo, x.temporada, x.estado, x.fecha_apertura, x.fecha_cierre, x.total_gastado, x.n_gastos,
+      d.hectareas ? x.costo_ha : 'N/A', x.rendimiento, x.unidad_rendimiento, x.precio_venta_unidad, x.ingreso_bruto, x.margen_bruto]
+      .concat(gids.map(function (g) { return x.por_grupo[g] || 0; })).map(celda).join(',');
+  });
+  const csv = '﻿' + enc.map(celda).join(',') + '\r\n' + filas.join('\r\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = 'AgroControl_historico_' + norm(d.tabla.nombre).replace(/[^a-z0-9]+/g, '-') + '_' + hoyMX() + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  aviso('CSV exportado: ' + d.ciclos.length + ' ciclos.', 'ok');
+}
+
+function imprimirHistorico() {
+  const id = $('hi-tabla').value;
+  if (!id || !_hist[id]) { aviso('Primero consulta una tabla.', 'err'); return; }
+  $('hi-print-titulo').textContent = 'AgroControl — Histórico de ' + _hist[id].datos.tabla.nombre + ' — ' +
+    new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' }) + ' · Agrícola Guía — Sistemas';
+  setTimeout(function () { window.print(); }, 50);
+}
+
+// ═════════════════════════════════════════════════════════════════════
 //  CATÁLOGO
 // ═════════════════════════════════════════════════════════════════════
 const CAT_UI = {
@@ -2372,6 +2566,7 @@ function cambiarTab(nombreTab) {
   if (nombreTab === 'catalogo') renderCatalogo();
   if (nombreTab === 'ciclos') renderCiclos();
   if (nombreTab === 'cultivos') renderCultivos();
+  if (nombreTab === 'historicos') renderHistoricosSelector();
 }
 
 function renderTodo() {
@@ -2384,6 +2579,7 @@ function renderTodo() {
   if (!$('panel-resumen').hidden) renderResumen();
   renderCiclos();
   renderCultivos();
+  if (!$('panel-historicos').hidden && $('hi-tabla').value) cargarHistorico(false);
 }
 
 function iniciarApp() {
@@ -2407,6 +2603,11 @@ function enlazarEventos() {
   $('btn-conexion').addEventListener('click', cambiarConexion);
   $('btn-admin').addEventListener('click', modoAdmin);
   $('btn-ir-ciclos').addEventListener('click', function () { cambiarTab('ciclos'); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+
+  // Históricos
+  $('hi-tabla').addEventListener('change', function () { cargarHistorico(false); });
+  $('btn-hi-csv').addEventListener('click', exportarHistoricoCSV);
+  $('btn-hi-imprimir').addEventListener('click', imprimirHistorico);
 
   // Cultivos
   $('cu-plantilla').addEventListener('change', renderPlantilla);
