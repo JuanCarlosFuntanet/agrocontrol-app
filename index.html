@@ -219,6 +219,17 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
 .chip-admin{background:var(--rojo);color:#fff;border-radius:20px;padding:2px 9px;font-size:11.5px;font-weight:700;letter-spacing:.03em}
 .ayuda{font-size:12px;color:var(--texto3);margin-top:2px}
 
+/* Vista de plantilla */
+.pl-resumen{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 12px}
+.pl-grupo{border:1px solid var(--linea);border-radius:10px;padding:9px 12px;margin-bottom:6px;background:#fff}
+.pl-gnom{font-weight:600;font-size:14px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.pl-cats{margin:6px 0 0 4px;display:flex;flex-direction:column;gap:4px}
+.pl-cat{font-size:13px;display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap}
+.pl-prods{display:flex;gap:4px;flex-wrap:wrap;margin-left:18px}
+.pl-prod{font-size:12px;padding:2px 8px;border-radius:12px;border:1px solid var(--linea);background:var(--crema)}
+.pl-prod.nuevo{border-color:var(--verde-borde);background:var(--verde-cl);color:var(--verde-osc)}
+.pl-prod.inactivo{border-color:var(--ambar-borde);background:var(--ambar-cl);color:var(--ambar)}
+
 /* Modal */
 .modal-fondo{position:fixed;inset:0;background:rgba(20,20,15,.45);z-index:100;display:flex;align-items:center;justify-content:center;padding:1rem}
 .modal{background:#fff;border-radius:14px;padding:1.25rem;max-width:560px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.18)}
@@ -326,6 +337,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
     <nav class="tabs" role="tablist">
       <button class="tab activa" type="button" data-tab="registro">✏️ Registrar gasto</button>
       <button class="tab" type="button" data-tab="ciclos">🌾 Ciclos</button>
+      <button class="tab" type="button" data-tab="cultivos">🌱 Cultivos</button>
       <button class="tab" type="button" data-tab="catalogo">📋 Catálogo</button>
       <button class="tab" type="button" data-tab="resumen">📊 Resumen</button>
     </nav>
@@ -420,6 +432,37 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
       </div>
     </section>
 
+    <!-- CULTIVOS -->
+    <section class="panel" id="panel-cultivos" hidden>
+      <div class="card">
+        <div class="card-titulo">Plantilla de catálogo por cultivo</div>
+        <div class="card-sub">Crea de un jalón los grupos, categorías y productos típicos del cultivo. Solo agrega lo que falta; lo que ya existe no se duplica y lo desactivado se reactiva.</div>
+        <div id="cu-alerta" class="alerta" hidden></div>
+        <div class="fila c1"><div class="campo"><label class="etq" for="cu-plantilla">Cultivo</label><select id="cu-plantilla"></select></div></div>
+        <div id="cu-vista"></div>
+        <button class="btn btn-prim btn-bloque" type="button" id="btn-aplicar-plantilla">Aplicar plantilla</button>
+      </div>
+      <div class="card">
+        <div class="card-titulo">Cultivos</div>
+        <div class="card-sub">El tipo de ciclo define el formato de la temporada. La unidad de rendimiento se propone al cerrar el ciclo o registrar un corte.</div>
+        <div id="cu-alerta2" class="alerta" hidden></div>
+        <form id="form-cultivo" novalidate autocomplete="off">
+          <div class="fila c3">
+            <div class="campo"><label class="etq" for="cu-nombre">Nombre</label><input type="text" id="cu-nombre" maxlength="60" placeholder="Ej: Avena"></div>
+            <div class="campo"><label class="etq" for="cu-tipo">Tipo de ciclo</label><select id="cu-tipo"></select></div>
+            <div class="campo"><label class="etq" for="cu-unidad">Unidad de rendimiento</label><select id="cu-unidad"></select></div>
+          </div>
+          <label class="check" style="margin-bottom:6px"><input type="checkbox" id="cu-cortes"> Cosechas múltiples por ciclo (cortes, como la alfalfa)</label>
+          <button class="btn btn-prim btn-bloque" type="submit" id="btn-agregar-cultivo">+ Agregar cultivo</button>
+        </form>
+        <div class="sec" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+          <span id="cu-lista-titulo">Registrados</span>
+          <label class="check"><input type="checkbox" id="cu-inactivos"> Mostrar desactivados</label>
+        </div>
+        <div class="lista" id="cu-lista"></div>
+      </div>
+    </section>
+
     <!-- CATÁLOGO -->
     <section class="panel" id="panel-catalogo" hidden>
       <nav class="subtabs">
@@ -439,7 +482,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
         </div>
         <div class="lista" id="cat-lista"></div>
         <div class="sugerencias" id="cat-sug" hidden>
-          <div class="sug-cab">⚡ Plantillas sugeridas (maíz)</div>
+          <div class="sug-cab">⚡ Plantillas sugeridas (maíz) · otros cultivos en la pestaña 🌱 Cultivos</div>
           <div class="sug-sub" id="cat-sug-sub"></div>
           <div class="chips" id="cat-sug-chips"></div>
         </div>
@@ -484,7 +527,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
    Sin frameworks. Habla con el backend de Apps Script por POST (text/plain).
    ═════════════════════════════════════════════════════════════════════ */
 const API_VERSION = '1';
-const APP_VERSION = '6.0.0-f3';
+const APP_VERSION = '6.0.0-f4';
 const TZ = 'America/Mexico_City';
 const MS_MARCA = 60000;       // revisión de cambios en el servidor
 const MS_COLA = 30000;        // reintento de la cola sin señal
@@ -536,6 +579,54 @@ const PLANTILLA_MAIZ = {
     'Cosecha||Transporte de grano': ['Flete a centro de acopio']
   }
 };
+
+// Plantillas de catálogo por cultivo (F4). Productos por ingrediente activo o descripción, nunca marca comercial.
+// Estructura: { unidades: [...unidades de rendimiento], grupos: { 'Grupo': { 'Categoría': ['Producto', ...] } } }
+const GRUPOS_GENERICOS = ['Semilla', 'Preparación de terreno', 'Siembra', 'Riego', 'Fertilización', 'Insumos químicos',
+  'Maquinaria', 'Mano de obra', 'Cosecha', 'Administrativo'];
+function plantillaGenerica(unidades, extras) {
+  const grupos = {};
+  GRUPOS_GENERICOS.concat(extras || []).forEach(function (g) { grupos[g] = {}; });
+  return { unidades: unidades, grupos: grupos, generica: true };
+}
+function plantillaForrajera(semilla) {
+  return {
+    unidades: ['pacas', 'toneladas de forraje verde', 'toneladas de grano'],
+    grupos: {
+      'Semilla': { 'Semilla certificada': [semilla] },
+      'Preparación de terreno': { 'Barbecho': [], 'Rastreo': [] },
+      'Siembra': { 'Siembra al voleo': [], 'Siembra en línea': [] },
+      'Riego': { 'Riegos de auxilio': [] },
+      'Fertilización': { 'Fertilizante de fondo': ['Urea 46%', 'Fosfato diamónico (DAP)'] },
+      'Insumos químicos': { 'Herbicida hormonal': ['2,4-D amina'] },
+      'Maquinaria': { 'Combustible diésel': [], 'Renta de maquinaria': [] },
+      'Mano de obra': { 'Jornales de campo': [] },
+      'Cosecha': { 'Corte en verde': [], 'Henificado': [] },
+      'Empacado': { 'Empacado': ['Diésel empacadora', 'Hilo para empacadora', 'Renta de empacadora'], 'Transporte de pacas': [] },
+      'Administrativo': { 'Renta de tierra': [], 'Seguro agrícola': [] }
+    }
+  };
+}
+function plantillaDesdeMaiz() {
+  const grupos = {};
+  PLANTILLA_MAIZ.grupos.forEach(function (g) {
+    grupos[g] = {};
+    (PLANTILLA_MAIZ.categorias[g] || []).forEach(function (c) { grupos[g][c] = (PLANTILLA_MAIZ.productos[g + '||' + c] || []).slice(); });
+  });
+  return { unidades: ['kilos', 'toneladas'], grupos: grupos };
+}
+const PLANTILLAS_CULTIVOS = {
+  'avena': plantillaForrajera('Semilla certificada de avena'),
+  'triticale': plantillaForrajera('Semilla certificada de triticale'),
+  'maiz': plantillaDesdeMaiz(),
+  'sorgo': plantillaGenerica(['kilos', 'toneladas', 'toneladas de forraje verde']),
+  'trigo': plantillaGenerica(['kilos', 'toneladas']),
+  'garbanzo': plantillaGenerica(['kilos', 'toneladas', 'bultos']),
+  'alfalfa': plantillaGenerica(['pacas', 'toneladas de forraje verde'], ['Empacado']),
+  'cebada': plantillaGenerica(['kilos', 'toneladas']),
+  'frijol': plantillaGenerica(['kilos', 'toneladas', 'bultos'])
+};
+function plantillaDe(cultivo) { return cultivo ? PLANTILLAS_CULTIVOS[norm(cultivo.nombre)] || null : null; }
 
 // ═════════════════════════════════════════════════════════════════════
 //  ESTADO
@@ -1416,8 +1507,9 @@ function totalCiclo(cicloId) {
   return { total: gs.reduce(function (s, g) { return s + Number(g.costo_total || 0); }, 0), n: gs.length };
 }
 function unidadesRend(ciclo) {
+  const lista = unidadesDeCultivo(ciclo ? S.idx.cultivos[ciclo.cultivo_id] : null);
   const def = ciclo && ciclo.unidad_rendimiento;
-  return def && UNIDADES_REND.indexOf(def) < 0 ? [def].concat(UNIDADES_REND) : UNIDADES_REND;
+  return def && lista.indexOf(def) < 0 ? [def].concat(lista) : lista;
 }
 
 function sugerirTemporada() {
@@ -1686,6 +1778,199 @@ function accionCiclos(e) {
   else if (a === 'corte-editar') { const k = S.datos.cortes.filter(function (x) { return x.corte_id === id; })[0]; if (k) corteUI(k.ciclo_id, id); }
   else if (a === 'corte-borrar') borrarCorteUI(id);
   else if (a === 'historial') cargarHistorial();
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  CULTIVOS Y PLANTILLAS (F4)
+// ═════════════════════════════════════════════════════════════════════
+const TIPOS_CICLO = [{ v: 'P-V', t: 'P-V (Primavera-Verano)' }, { v: 'O-I', t: 'O-I (Otoño-Invierno)' }, { v: 'Perenne', t: 'Perenne (varios años)' }];
+
+/** Compara la plantilla contra el catálogo actual: qué es nuevo, qué existe y qué está desactivado. */
+function analizarPlantilla(pl) {
+  const c = S.datos.catalogos;
+  const res = { grupos: [], nuevos: { grupos: 0, categorias: 0, productos: 0 }, inactivos: 0 };
+  Object.keys(pl.grupos).forEach(function (gn) {
+    const g = c.grupos.filter(function (x) { return norm(x.nombre) === norm(gn); })[0];
+    const eg = g ? (g.activo === false ? 'inactivo' : 'existe') : 'nuevo';
+    if (eg === 'nuevo') res.nuevos.grupos++; else if (eg === 'inactivo') res.inactivos++;
+    const cats = Object.keys(pl.grupos[gn]).map(function (cn) {
+      const k = g ? c.categorias.filter(function (x) { return x.grupo_id === g.id && norm(x.nombre) === norm(cn); })[0] : null;
+      const ec = k ? (k.activa === false ? 'inactivo' : 'existe') : 'nuevo';
+      if (ec === 'nuevo') res.nuevos.categorias++; else if (ec === 'inactivo') res.inactivos++;
+      const prods = pl.grupos[gn][cn].map(function (pn) {
+        const p = k ? c.productos.filter(function (x) { return x.categoria_id === k.id && norm(x.nombre) === norm(pn); })[0] : null;
+        const ep = p ? (p.activo === false ? 'inactivo' : 'existe') : 'nuevo';
+        if (ep === 'nuevo') res.nuevos.productos++; else if (ep === 'inactivo') res.inactivos++;
+        return { nombre: pn, estado: ep };
+      });
+      return { nombre: cn, estado: ec, productos: prods };
+    });
+    res.grupos.push({ nombre: gn, estado: eg, categorias: cats });
+  });
+  return res;
+}
+
+function badgeEstado(e) {
+  return e === 'nuevo' ? '<span class="badge verde">+ nuevo</span>' : e === 'inactivo' ? '<span class="badge ambar">se reactiva</span>' : '<span class="badge gris">✓ existe</span>';
+}
+
+function renderPlantilla() {
+  const cultivo = S.idx.cultivos[$('cu-plantilla').value];
+  const pl = plantillaDe(cultivo);
+  const btn = $('btn-aplicar-plantilla');
+  if (!cultivo) { $('cu-vista').innerHTML = '<div class="nota-vacia">Elige un cultivo.</div>'; btn.disabled = true; return; }
+  if (!pl) {
+    $('cu-vista').innerHTML = '<div class="alerta aviso">No hay plantilla predefinida para «' + esc(cultivo.nombre) + '». Agrega sus grupos y categorías en la pestaña Catálogo.</div>';
+    btn.disabled = true; btn.textContent = 'Aplicar plantilla'; return;
+  }
+  const a = analizarPlantilla(pl);
+  const n = a.nuevos.grupos + a.nuevos.categorias + a.nuevos.productos;
+  $('cu-vista').innerHTML =
+    (pl.generica ? '<div class="alerta info">Estructura mínima: solo grupos genéricos. Las categorías y productos de este cultivo se completan después.</div>' : '') +
+    '<div class="pl-resumen"><span class="badge verde">Nuevos: ' + a.nuevos.grupos + ' grupos · ' + a.nuevos.categorias + ' categorías · ' + a.nuevos.productos + ' productos</span>' +
+    (a.inactivos ? '<span class="badge ambar">Se reactivan: ' + a.inactivos + '</span>' : '') +
+    '<span class="badge gris">Unidad de rendimiento: ' + esc(pl.unidades.join(' / ')) + '</span></div>' +
+    a.grupos.map(function (g) {
+      return '<div class="pl-grupo"><div class="pl-gnom">' + esc(g.nombre) + ' ' + badgeEstado(g.estado) + '</div>' +
+        (g.categorias.length ? '<div class="pl-cats">' + g.categorias.map(function (k) {
+          return '<div><div class="pl-cat">↳ ' + esc(k.nombre) + ' ' + badgeEstado(k.estado) + '</div>' +
+            (k.productos.length ? '<div class="pl-prods">' + k.productos.map(function (p) {
+              return '<span class="pl-prod ' + (p.estado === 'existe' ? '' : p.estado) + '">' + (p.estado === 'existe' ? '✓ ' : p.estado === 'nuevo' ? '+ ' : '↺ ') + esc(p.nombre) + '</span>';
+            }).join('') + '</div>' : '') + '</div>';
+        }).join('') + '</div>' : '') + '</div>';
+    }).join('');
+  btn.disabled = S.bloqueado || (n + a.inactivos === 0);
+  btn.textContent = n + a.inactivos === 0 ? 'Todo ya existe en el catálogo' : 'Aplicar plantilla de ' + cultivo.nombre + ' (' + n + ' nuevos' + (a.inactivos ? ', ' + a.inactivos + ' a reactivar' : '') + ')';
+}
+
+async function aplicarPlantilla() {
+  const cultivo = S.idx.cultivos[$('cu-plantilla').value];
+  const pl = plantillaDe(cultivo);
+  if (!pl || S.bloqueado) return;
+  if (navigator.onLine === false) { alerta('cu-alerta', 'Para aplicar una plantilla necesitas señal de internet.', 'err'); return; }
+  const btn = $('btn-aplicar-plantilla');
+  btn.disabled = true; btn.textContent = 'Aplicando…';
+  try {
+    const payload = { cultivo: cultivo.nombre, grupos: Object.keys(pl.grupos).map(function (gn) {
+      return { nombre: gn, categorias: Object.keys(pl.grupos[gn]).map(function (cn) { return { nombre: cn, productos: pl.grupos[gn][cn] }; }) };
+    }) };
+    const r = await api('aplicarPlantillaCultivo', payload);
+    S.datos.catalogos.grupos = r.catalogos.grupos;
+    S.datos.catalogos.categorias = r.catalogos.categorias;
+    S.datos.catalogos.productos = r.catalogos.productos;
+    indexar(); guardarCacheDatos(); renderTodo();
+    const k = r.creados;
+    alerta('cu-alerta', 'Plantilla de ' + cultivo.nombre + ' aplicada: ' + k.grupos + ' grupos, ' + k.categorias + ' categorías y ' + k.productos + ' productos nuevos' +
+      (k.reactivados ? '; ' + k.reactivados + ' reactivados' : '') + '.', 'ok');
+  } catch (e) {
+    alerta('cu-alerta', msgErr(e), 'err');
+  } finally {
+    renderPlantilla();
+  }
+}
+
+function unidadesDeCultivo(cultivo) {
+  const pl = plantillaDe(cultivo);
+  const base = pl ? pl.unidades.slice() : [];
+  UNIDADES_REND.forEach(function (u) { if (base.indexOf(u) < 0) base.push(u); });
+  if (cultivo && cultivo.unidad_rendimiento_default && base.indexOf(cultivo.unidad_rendimiento_default) < 0) base.unshift(cultivo.unidad_rendimiento_default);
+  return base;
+}
+
+function renderCultivos() {
+  if (!S.datos || $('panel-cultivos').hidden) return;
+  const lista = (S.datos.catalogos.cultivos || []).slice().sort(porNombre);
+  // Selector de plantilla: prioridad a avena y triticale
+  const sel = $('cu-plantilla'), previo = sel.value;
+  const orden = lista.filter(function (c) { return c.activo !== false; }).sort(function (a, b) {
+    const p = function (c) { const n = norm(c.nombre); return n === 'avena' ? 0 : n === 'triticale' ? 1 : 2; };
+    return p(a) - p(b) || porNombre(a, b);
+  });
+  const defecto = previo && S.idx.cultivos[previo] ? previo : (orden[0] ? orden[0].id : '');
+  sel.innerHTML = opciones(orden.map(function (c) { return { v: c.id, t: c.nombre + (plantillaDe(c) ? (plantillaDe(c).generica ? ' — estructura mínima' : ' — plantilla completa') : ' — sin plantilla') }; }), defecto, orden.length ? null : '— Sin cultivos —');
+  renderPlantilla();
+
+  // Formulario
+  if (!$('cu-tipo').options.length) $('cu-tipo').innerHTML = opciones(TIPOS_CICLO, 'O-I');
+  const uSel = $('cu-unidad').value;
+  $('cu-unidad').innerHTML = opciones(UNIDADES_REND, uSel || 'pacas');
+  $('btn-agregar-cultivo').disabled = S.bloqueado;
+
+  // Lista
+  const ver = $('cu-inactivos').checked;
+  const nInact = lista.filter(function (c) { return c.activo === false; }).length;
+  $('cu-lista-titulo').textContent = 'Registrados (' + (lista.length - nInact) + ' activos' + (nInact ? ', ' + nInact + ' desactivados' : '') + ')';
+  const visibles = lista.filter(function (c) { return ver || c.activo !== false; });
+  $('cu-lista').innerHTML = visibles.length ? visibles.map(function (c) {
+    const act = c.activo !== false;
+    const ciclosAct = S.datos.ciclos.filter(function (x) { return x.cultivo_id === c.id && x.estado === 'activo'; }).length;
+    return '<div class="item' + (act ? '' : ' inactivo') + '"><span class="item-nombre">' + esc(c.nombre) +
+      (act ? '' : ' <span class="badge gris">Desactivado</span>') + '</span>' +
+      '<span class="item-meta"><span class="badge gris">' + esc(c.ciclo_tipo) + '</span> ' + esc(c.unidad_rendimiento_default) +
+      (c.cosechas_multiples ? ' · <span class="badge azul">Cortes</span>' : '') +
+      (ciclosAct ? ' · ' + ciclosAct + ' ciclo' + (ciclosAct > 1 ? 's' : '') + ' activo' + (ciclosAct > 1 ? 's' : '') : '') + '</span>' +
+      '<span class="item-acc">' + (S.bloqueado ? '' :
+        '<button class="btn-mini editar" type="button" data-accion="cu-editar" data-id="' + esc(c.id) + '">✎ Editar</button>' +
+        '<button class="btn-mini ' + (act ? 'borrar' : 'neutro') + '" type="button" data-accion="cu-activo" data-id="' + esc(c.id) + '">' + (act ? 'Desactivar' : 'Reactivar') + '</button>') +
+      '</span></div>';
+  }).join('') : '<div class="vacio"><strong>Sin cultivos</strong>Agrega el primero arriba.</div>';
+}
+
+function reemplazarCultivo(c) {
+  const l = S.datos.catalogos.cultivos, i = l.findIndex(function (x) { return x.id === c.id; });
+  if (i >= 0) l[i] = c; else l.push(c);
+  indexar(); guardarCacheDatos(); renderTodo();
+}
+
+async function agregarCultivoUI(ev) {
+  ev.preventDefault();
+  if (S.bloqueado) return;
+  const p = { nombre: $('cu-nombre').value.trim(), ciclo_tipo: $('cu-tipo').value, unidad_rendimiento_default: $('cu-unidad').value,
+              cosechas_multiples: $('cu-cortes').checked };
+  if (!p.nombre) { alerta('cu-alerta2', 'Escribe el nombre del cultivo.', 'err'); return; }
+  try {
+    const r = await api('addCultivo', p);
+    $('cu-nombre').value = ''; $('cu-cortes').checked = false;
+    reemplazarCultivo(r);
+    alerta('cu-alerta2', 'Cultivo «' + r.nombre + '» agregado.', 'ok');
+  } catch (e) { alerta('cu-alerta2', msgErr(e), 'err'); }
+}
+
+function editarCultivoUI(id) {
+  const c = S.idx.cultivos[id];
+  if (!c) return;
+  const usado = S.datos.ciclos.some(function (x) { return x.cultivo_id === id; });
+  abrirModal({
+    titulo: 'Editar cultivo',
+    html: '<div class="fila c1"><div class="campo"><label class="etq" for="cue-nombre">Nombre</label><input type="text" id="cue-nombre" maxlength="60" value="' + esc(c.nombre) + '"></div></div>' +
+      '<div class="fila c2"><div class="campo"><label class="etq" for="cue-tipo">Tipo de ciclo</label><select id="cue-tipo"' + (usado ? ' disabled' : '') + '>' + opciones(TIPOS_CICLO, c.ciclo_tipo) + '</select>' +
+      (usado ? '<div class="ayuda">No se cambia porque ya tiene ciclos.</div>' : '') + '</div>' +
+      '<div class="campo"><label class="etq" for="cue-unidad">Unidad de rendimiento</label><select id="cue-unidad">' + opciones(unidadesDeCultivo(c), c.unidad_rendimiento_default) + '</select></div></div>' +
+      '<label class="check"><input type="checkbox" id="cue-cortes"' + (c.cosechas_multiples ? ' checked' : '') + (usado ? ' disabled' : '') + '> Cosechas múltiples por ciclo (cortes)</label>' +
+      (usado ? '<div class="ayuda">Cortes: no se cambia porque ya tiene ciclos.</div>' : ''),
+    botones: [{ texto: 'Cancelar' }, { texto: 'Guardar', clase: 'btn-prim', accion: async function () {
+      const p = { id: id, nombre: $('cue-nombre').value.trim(), unidad_rendimiento_default: $('cue-unidad').value };
+      if (!usado) { p.ciclo_tipo = $('cue-tipo').value; p.cosechas_multiples = $('cue-cortes').checked; }
+      const r = await api('editCultivo', p);
+      reemplazarCultivo(r); aviso('Cultivo actualizado.', 'ok');
+    } }]
+  });
+}
+
+async function alternarCultivo(id) {
+  const c = S.idx.cultivos[id];
+  if (!c) return;
+  const activar = c.activo === false;
+  const hacer = async function () {
+    const r = await api('setActivoCultivo', { id: id, activo: activar });
+    reemplazarCultivo(r); aviso('«' + c.nombre + '» ' + (activar ? 'reactivado.' : 'desactivado.'), 'ok');
+  };
+  if (activar) { try { await hacer(); } catch (e) { alerta('cu-alerta2', msgErr(e), 'err'); } return; }
+  abrirModal({
+    titulo: 'Desactivar cultivo',
+    html: '<p style="font-size:14px;line-height:1.6">«<strong>' + esc(c.nombre) + '</strong>» ya no aparecerá al crear ciclos. Sus ciclos anteriores no cambian.</p>',
+    botones: [{ texto: 'Cancelar' }, { texto: 'Desactivar', clase: 'btn-peligro', accion: hacer }]
+  });
 }
 
 // ═════════════════════════════════════════════════════════════════════
@@ -2086,6 +2371,7 @@ function cambiarTab(nombreTab) {
   if (nombreTab === 'resumen') renderResumen();
   if (nombreTab === 'catalogo') renderCatalogo();
   if (nombreTab === 'ciclos') renderCiclos();
+  if (nombreTab === 'cultivos') renderCultivos();
 }
 
 function renderTodo() {
@@ -2097,6 +2383,7 @@ function renderTodo() {
   if (!$('panel-catalogo').hidden) renderCatalogo();
   if (!$('panel-resumen').hidden) renderResumen();
   renderCiclos();
+  renderCultivos();
 }
 
 function iniciarApp() {
@@ -2120,6 +2407,18 @@ function enlazarEventos() {
   $('btn-conexion').addEventListener('click', cambiarConexion);
   $('btn-admin').addEventListener('click', modoAdmin);
   $('btn-ir-ciclos').addEventListener('click', function () { cambiarTab('ciclos'); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+
+  // Cultivos
+  $('cu-plantilla').addEventListener('change', renderPlantilla);
+  $('btn-aplicar-plantilla').addEventListener('click', aplicarPlantilla);
+  $('form-cultivo').addEventListener('submit', agregarCultivoUI);
+  $('cu-inactivos').addEventListener('change', renderCultivos);
+  $('cu-tipo').addEventListener('change', function () { if ($('cu-tipo').value === 'Perenne') $('cu-cortes').checked = true; });
+  $('cu-lista').addEventListener('click', function (e) {
+    const b = e.target.closest('button[data-accion]');
+    if (!b) return;
+    if (b.dataset.accion === 'cu-editar') editarCultivoUI(b.dataset.id); else alternarCultivo(b.dataset.id);
+  });
 
   // Ciclos
   $('form-ciclo').addEventListener('submit', crearCicloUI);
