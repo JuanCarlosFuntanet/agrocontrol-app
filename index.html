@@ -246,6 +246,11 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
 .txt-pos{color:var(--verde);font-weight:600}
 .txt-neg{color:var(--rojo);font-weight:600}
 
+/* Migración */
+.tabla-comp input[type=text],.tabla-comp input[type=number]{min-height:34px;padding:5px 8px;font-size:13px;min-width:90px}
+.tabla-comp td.izq{text-align:left}
+.errores{max-height:220px;overflow:auto;font-size:12.5px;line-height:1.6;background:var(--rojo-cl);border:1px solid var(--rojo-borde);border-radius:8px;padding:8px 12px;color:#7f2020}
+
 /* Modal */
 .modal-fondo{position:fixed;inset:0;background:rgba(20,20,15,.45);z-index:100;display:flex;align-items:center;justify-content:center;padding:1rem}
 .modal{background:#fff;border-radius:14px;padding:1.25rem;max-width:560px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.18)}
@@ -357,6 +362,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
       <button class="tab" type="button" data-tab="catalogo">📋 Catálogo</button>
       <button class="tab" type="button" data-tab="resumen">📊 Resumen</button>
       <button class="tab" type="button" data-tab="historicos">📚 Históricos</button>
+      <button class="tab" type="button" data-tab="migracion" id="tab-migracion" hidden>🔁 Migración v5</button>
     </nav>
 
     <!-- REGISTRO -->
@@ -540,6 +546,50 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
       <div id="hi-alerta" class="alerta" hidden></div>
       <div id="hi-cuerpo"></div>
     </section>
+
+    <!-- MIGRACIÓN v5 (solo con Config.migracion_habilitada = TRUE) -->
+    <section class="panel" id="panel-migracion" hidden>
+      <div class="card">
+        <div class="card-titulo">Migración desde AgroControl v5</div>
+        <div class="card-sub">Se usa una sola vez. Nada se escribe hasta que presiones «Importar». La importación se puede repetir sin duplicar: lo que ya existe se omite.</div>
+        <div id="mi-admin" class="alerta aviso" hidden>Para importar entra al 🔐 Modo admin. La vista previa funciona sin él.</div>
+        <div class="sec">1. Archivos CSV del v5</div>
+        <div class="fila c1"><div class="campo"><label class="etq" for="mi-archivos">Selecciona los 5 archivos (se reconocen por su nombre)</label>
+          <input type="file" id="mi-archivos" accept=".csv,text/csv" multiple></div></div>
+        <div id="mi-archivos-estado" class="lista"></div>
+      </div>
+      <div id="mi-previa" hidden>
+        <div class="card">
+          <div class="card-titulo">2. Ciclos y tablas</div>
+          <div class="fila c3">
+            <div class="campo"><label class="etq" for="mi-cultivo">Cultivo</label><select id="mi-cultivo"></select></div>
+            <div class="campo"><label class="etq" for="mi-temporada">Temporada</label><input type="text" id="mi-temporada" maxlength="20"></div>
+            <div class="campo"><label class="etq" for="mi-cierre">Fecha de cierre</label><input type="date" id="mi-cierre"></div>
+          </div>
+          <div class="fila c2">
+            <div class="campo"><label class="etq" for="mi-patron">Nombre de cada ciclo ({tabla} = nombre de la tabla)</label><input type="text" id="mi-patron" maxlength="120"></div>
+            <div class="campo"><label class="etq" for="mi-kg">Total cosechado (kg netos de silo) — se prorratea por ha</label><input type="number" id="mi-kg" min="0" step="any" inputmode="decimal" placeholder="Vacío = pendiente de dato"></div>
+          </div>
+          <div class="envoltura-tabla"><table class="tabla-comp" id="mi-tablas"></table></div>
+          <p class="ayuda" id="mi-prorrateo"></p>
+        </div>
+        <div class="card">
+          <div class="card-titulo">3. Catálogos</div>
+          <div id="mi-catalogos"></div>
+        </div>
+        <div class="card">
+          <div class="card-titulo">4. Validación de gastos</div>
+          <div id="mi-validacion"></div>
+        </div>
+        <div class="card">
+          <div class="card-titulo">5. Importar</div>
+          <div id="mi-alerta" class="alerta" hidden></div>
+          <div id="mi-progreso" class="ayuda" style="margin-bottom:8px"></div>
+          <button class="btn btn-prim btn-bloque" type="button" id="btn-migrar">Importar al sistema</button>
+          <div id="mi-reporte"></div>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -562,7 +612,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
    Sin frameworks. Habla con el backend de Apps Script por POST (text/plain).
    ═════════════════════════════════════════════════════════════════════ */
 const API_VERSION = '1';
-const APP_VERSION = '6.0.0-f5';
+const APP_VERSION = '6.0.0-f6';
 const TZ = 'America/Mexico_City';
 const MS_MARCA = 60000;       // revisión de cambios en el servidor
 const MS_COLA = 30000;        // reintento de la cola sin señal
@@ -924,6 +974,8 @@ function aplicarDatos(d) {
   indexar();
   if (d.servidor) {
     $('franja-sandbox').hidden = d.servidor.ambiente !== 'sandbox';
+    $('tab-migracion').hidden = !d.servidor.migracion_habilitada;
+    if (!d.servidor.migracion_habilitada && !$('panel-migracion').hidden) cambiarTab('registro');
     const vs = d.servidor.version_app || '';
     $('pie-version').textContent = '· versión ' + APP_VERSION + ' (API ' + API_VERSION + ')' +
       (vs && vs !== APP_VERSION ? ' · servidor ' + vs + ' ⚠ publica el backend más reciente' : '');
@@ -1504,7 +1556,7 @@ function salirAdmin(porError) {
   try { sessionStorage.removeItem(ssClaveAdmin()); } catch (e) { /* sin almacenamiento */ }
   actualizarCabAdmin();
   if (porError) aviso('La clave de administrador ya no es válida. Vuelve a entrar al modo admin.', 'err', 7000);
-  renderRegistros(); renderCiclos();
+  renderRegistros(); renderCiclos(); renderMigracion();
 }
 function modoAdmin() {
   if (S.claveAdmin) { salirAdmin(false); aviso('Saliste del modo administrador.', 'info'); return; }
@@ -1521,7 +1573,7 @@ function modoAdmin() {
         await api('verificarAdmin', {}, { admin: clave });
         S.claveAdmin = clave;
         try { sessionStorage.setItem(ssClaveAdmin(), clave); } catch (e) { /* sin almacenamiento */ }
-        actualizarCabAdmin(); renderRegistros(); renderCiclos();
+        actualizarCabAdmin(); renderRegistros(); renderCiclos(); renderMigracion();
         aviso('Modo administrador activo.', 'ok');
       } }
     ]
@@ -2168,6 +2220,368 @@ function imprimirHistorico() {
 }
 
 // ═════════════════════════════════════════════════════════════════════
+//  MIGRACIÓN DESDE EL v5 (F6) — se usa una sola vez
+// ═════════════════════════════════════════════════════════════════════
+// Valores acordados con Juan Carlos (27-sep-2026). Todos se pueden ajustar en pantalla antes de importar.
+const MIGRACION_PRESET = {
+  nombres: { T20MAIZ: 'T20', T21MAIZ: 'T21', T3MAIZ: 'T3', T4MAIZ: 'T4', T5MAIZ: 'T5', T2BMAIZ: 'T2B', T1MAIZ: 'T1',
+             TCHAYOMAIZ: 'Chayo', THUAMAIZ: 'Huaraches' },
+  hectareas: { T4: 8.5, T21: 8.5, T2B: 7.5, Chayo: 7.5, T20: 7, T5: 7, T3: 3, Huaraches: 1.5 },
+  sinProrrateo: { Huaraches: 'Rendimiento: pendiente de dato.', T1: 'No se sembró en PV2026; solo preparación de terreno.' },
+  marcas: ['nitroboost', 'teuton'],
+  cultivo: 'Maíz', temporada: 'PV2026', patron: 'PV2026 — Maíz Ario — {tabla}', cierre: '2026-09-26', unidad: 'kilos'
+};
+const LOTE_MIGRACION = 100;
+const M = { archivos: {}, tablas: [], gastos: [], errores: [], avisos: [], productos: [], cats: [], grupos: [], importando: false };
+
+/** Lector CSV (RFC 4180): comillas, comas y saltos de línea dentro de comillas, BOM. */
+function parseCSV(texto) {
+  const t = String(texto || '').replace(/^﻿/, '');
+  const filas = [];
+  let fila = [], campo = '', comillas = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (comillas) {
+      if (c === '"') { if (t[i + 1] === '"') { campo += '"'; i++; } else comillas = false; }
+      else campo += c;
+    } else if (c === '"') comillas = true;
+    else if (c === ',') { fila.push(campo); campo = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && t[i + 1] === '\n') i++;
+      fila.push(campo); campo = '';
+      if (fila.some(function (x) { return x.trim() !== ''; })) filas.push(fila);
+      fila = [];
+    } else campo += c;
+  }
+  fila.push(campo);
+  if (fila.some(function (x) { return x.trim() !== ''; })) filas.push(fila);
+  return filas;
+}
+
+function huellaTexto(s) {   // dos hashes de 32 bits (djb2 + sdbm) → 64 bits; colisión prácticamente imposible en miles de renglones
+  let a = 5381, b = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    a = ((a << 5) + a + c) >>> 0;
+    b = (c + (b << 6) + (b << 16) - b) >>> 0;
+  }
+  return a.toString(16) + b.toString(16);
+}
+
+function fechaMigracion(v) {
+  const s = String(v || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {   // formato del v5: 2026-08-11T06:00:00.000Z → fecha en hora de México
+    const d = new Date(s);
+    if (!isNaN(d)) return new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  }
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+  if (m) return m[3] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2);
+  return '';
+}
+
+function tipoArchivo(nombre) {
+  const n = norm(nombre);
+  if (n.indexOf('tabla') >= 0) return 'tablas';
+  if (n.indexOf('grupo') >= 0) return 'grupos';
+  if (n.indexOf('categor') >= 0) return 'categorias';
+  if (n.indexOf('producto') >= 0) return 'productos';
+  if (n.indexOf('gasto') >= 0) return 'gastos';
+  return '';
+}
+
+async function leerArchivosMigracion() {
+  const files = Array.from($('mi-archivos').files || []);
+  for (const f of files) {
+    const tipo = tipoArchivo(f.name);
+    if (!tipo) { aviso('No reconozco el archivo «' + f.name + '». Su nombre debe incluir tablas, grupos, categorias, productos o gastos.', 'err', 7000); continue; }
+    M.archivos[tipo] = { nombre: f.name, filas: parseCSV(await f.text()) };
+  }
+  analizarMigracion();
+}
+
+function analizarMigracion() {
+  const orden = ['tablas', 'grupos', 'categorias', 'productos', 'gastos'];
+  $('mi-archivos-estado').innerHTML = orden.map(function (k) {
+    const a = M.archivos[k];
+    return '<div class="item"><span class="item-nombre">' + (a ? '✅ ' : '⬜ ') + k + '</span><span class="item-meta">' +
+      (a ? esc(a.nombre) + ' · ' + (a.filas.length - 1) + ' renglones' : 'falta') + '</span></div>';
+  }).join('');
+  const faltan = orden.filter(function (k) { return !M.archivos[k]; });
+  $('mi-previa').hidden = faltan.length > 0;
+  if (faltan.length) return;
+
+  M.errores = []; M.avisos = [];
+  const cuerpo = function (k) { return M.archivos[k].filas.slice(1); };
+  // Tablas (encabezado del v5: "nombre,," → columnas por posición: nombre, extensión, unidad)
+  const previas = {};
+  M.tablas.forEach(function (t) { previas[t.v5] = t; });
+  M.tablas = cuerpo('tablas').map(function (r) {
+    const v5 = String(r[0] || '').trim();
+    const v6 = MIGRACION_PRESET.nombres[v5] || v5.replace(/MAIZ$/i, '');
+    const ya = previas[v5];
+    const ha = ya ? ya.ha : (MIGRACION_PRESET.hectareas[v6] !== undefined ? MIGRACION_PRESET.hectareas[v6] : '');
+    return { v5: v5, v6: ya ? ya.v6 : v6, ha: ha, extV5: r[1], prorrateo: ya ? ya.prorrateo : !(v6 in MIGRACION_PRESET.sinProrrateo) && ha !== '',
+             nota: ya ? ya.nota : (MIGRACION_PRESET.sinProrrateo[v6] || ''), n: 0, total: 0, primera: '' };
+  }).filter(function (t) { return t.v5; });
+  const porV5 = {};
+  M.tablas.forEach(function (t) { porV5[norm(t.v5)] = t; });
+
+  // Gastos
+  const enc = M.archivos.gastos.filas[0].map(function (h) { return norm(h); });
+  const col = function (n) { return enc.indexOf(norm(n)); };
+  const ix = { fecha: col('Fecha'), tabla: col('Tabla'), grupo: col('Grupo'), cat: col('Categoría'), prod: col('Producto / Servicio'),
+               cant: col('Cantidad'), unidad: col('Unidad'), cu: col('Costo Unitario'), ct: col('Costo Total'), notas: col('Notas') };
+  const faltanCols = Object.keys(ix).filter(function (k) { return ix[k] < 0; });
+  if (faltanCols.length) M.errores.push('Al CSV de gastos le faltan columnas: ' + faltanCols.join(', '));
+  const unidades = (S.datos && S.datos.listas && S.datos.listas.unidades_gasto) || UNIDADES_GASTO_DEF;
+  M.gastos = [];
+  const vistos = {};   // renglones idénticos (p. ej. los pares del P4): se numeran 1, 2, … para que cada uno tenga su huella
+  if (!faltanCols.length) {
+    cuerpo('gastos').forEach(function (r, i) {
+      const linea = i + 2, e = [];
+      const t = porV5[norm(r[ix.tabla])];
+      const fecha = fechaMigracion(r[ix.fecha]);
+      const cant = Number(r[ix.cant]), cu = Number(r[ix.cu]), ct = Number(r[ix.ct]);
+      if (!t) e.push('tabla «' + r[ix.tabla] + '» no está en el CSV de tablas');
+      if (!fecha) e.push('fecha inválida «' + r[ix.fecha] + '»');
+      if (!(cant > 0) || !(cu > 0) || !(ct > 0)) e.push('cantidad, costo unitario y total deben ser mayores que cero');
+      else if (Math.abs(cant * cu - ct) > 0.05) e.push('total ' + ct + ' ≠ cantidad × costo (' + round2(cant * cu) + ')');
+      if (unidades.indexOf(r[ix.unidad]) < 0) e.push('unidad «' + r[ix.unidad] + '» no es válida en el v6');
+      if (!String(r[ix.grupo] || '').trim() || !String(r[ix.cat] || '').trim() || !String(r[ix.prod] || '').trim()) e.push('falta grupo, categoría o producto');
+      if (e.length) { M.errores.push('Línea ' + linea + ': ' + e.join('; ') + '.'); return; }
+      t.n++; t.total = round2(t.total + ct);
+      if (!t.primera || fecha < t.primera) t.primera = fecha;
+      // Huella por contenido (no por número de línea): sobrevive a que el v5 inserte o reordene renglones al exportar el delta.
+      const contenido = [fecha, t.v5, r[ix.grupo], r[ix.cat], r[ix.prod], cant, r[ix.unidad], cu, round2(ct), String(r[ix.notas] || '').trim()]
+        .map(function (x) { return norm(x); }).join('|');
+      const clave = huellaTexto(contenido) + '.' + contenido.length;
+      vistos[clave] = (vistos[clave] || 0) + 1;
+      M.gastos.push({ linea: linea, huella: 'C' + clave + '-' + vistos[clave], fecha: fecha, tablaV5: t.v5,
+        grupo: r[ix.grupo].trim(), categoria: r[ix.cat].trim(), producto: r[ix.prod].trim(), cantidad: cant, unidad: r[ix.unidad],
+        costo_unitario: cu, costo_total: round2(ct), notas: String(r[ix.notas] || '').trim() });
+    });
+  }
+  // Catálogos (del CSV + lo que usan los gastos)
+  const grupos = {}, cats = {}, prods = [];
+  const addG = function (g) { g = String(g || '').trim(); if (g) grupos[norm(g)] = grupos[norm(g)] || g; };
+  cuerpo('grupos').forEach(function (r) { addG(r[0]); });
+  const addC = function (c, g) { c = String(c || '').trim(); g = String(g || '').trim(); if (!c || !g) return; addG(g); cats[norm(g) + '||' + norm(c)] = cats[norm(g) + '||' + norm(c)] || { nombre: c, grupo: g }; };
+  cuerpo('categorias').forEach(function (r) { addC(r[0], r[1]); });
+  M.gastos.forEach(function (g) { addC(g.categoria, g.grupo); });
+  const previosP = {};
+  M.productos.forEach(function (p) { previosP[norm(p.nombre)] = p.activo; });
+  cuerpo('productos').forEach(function (r) {
+    const n = String(r[0] || '').trim();
+    if (!n) return;
+    addC(r[1], r[2]);
+    const k = norm(n);
+    prods.push({ nombre: n, categoria: String(r[1]).trim(), grupo: String(r[2]).trim(),
+                 activo: k in previosP ? previosP[k] : MIGRACION_PRESET.marcas.indexOf(k) < 0 });
+  });
+  M.grupos = Object.keys(grupos).map(function (k) { return grupos[k]; });
+  M.cats = Object.keys(cats).map(function (k) { return cats[k]; });
+  M.productos = prods;
+  M.tablas.forEach(function (t) {
+    if (t.n === 0) M.avisos.push('La tabla ' + t.v5 + ' no tiene gastos: se crea en el catálogo, pero sin ciclo.');
+    if (Number(t.extV5) > 0 && Number(t.ha) !== Number(t.extV5)) M.avisos.push(t.v5 + ': el v5 dice ' + t.extV5 + ' ha y se usará ' + (t.ha === '' ? 'sin superficie' : t.ha + ' ha') + '.');
+  });
+  renderMigracion();
+}
+
+/** Reparte el total por hectárea con redondeo a kg enteros que suma exactamente el total. */
+function prorratear() {
+  const kg = Number($('mi-kg').value);
+  const base = M.tablas.filter(function (t) { return t.prorrateo && t.n > 0 && Number(t.ha) > 0; });
+  const sumHa = base.reduce(function (s, t) { return s + Number(t.ha); }, 0);
+  const r = {};
+  if (!(kg > 0) || !sumHa) return { r: r, sumHa: sumHa, kg: kg > 0 ? kg : 0 };
+  let asignado = 0;
+  const partes = base.map(function (t) { const x = kg * Number(t.ha) / sumHa; return { t: t, ent: Math.floor(x), resto: x - Math.floor(x) }; });
+  partes.forEach(function (p) { asignado += p.ent; });
+  partes.sort(function (a, b) { return b.resto - a.resto; });
+  for (let i = 0; i < Math.round(kg - asignado); i++) partes[i % partes.length].ent++;
+  partes.forEach(function (p) { r[p.t.v5] = p.ent; });
+  return { r: r, sumHa: sumHa, kg: kg };
+}
+
+function ciclosMigracion() {
+  const pr = prorratear();
+  const hoy = hoyMX();
+  const patron = $('mi-patron').value || MIGRACION_PRESET.patron;
+  return M.tablas.filter(function (t) { return t.n > 0; }).map(function (t) {
+    const rend = pr.r[t.v5];
+    let nota = 'Migrado desde AgroControl v5 el ' + hoy + '.';
+    if (rend !== undefined) nota += ' Rendimiento prorrateado por hectárea: ' + num(pr.kg) + ' kg netos de silo entre ' + num(pr.sumHa) + ' ha (esta tabla: ' + num(t.ha) + ' ha).';
+    else if (t.nota) nota += ' ' + t.nota;
+    else nota += ' Rendimiento: pendiente de dato.';
+    return { tabla: t.v6, cultivo: $('mi-cultivo').value, temporada: $('mi-temporada').value.trim(), nombre: patron.replace('{tabla}', t.v6),
+             fecha_apertura: t.primera, fecha_cierre: $('mi-cierre').value, rendimiento: rend === undefined ? '' : rend,
+             unidad_rendimiento: MIGRACION_PRESET.unidad, notas: nota };
+  });
+}
+
+function renderMigracion() {
+  if (!S.datos || $('panel-migracion').hidden) return;
+  $('mi-admin').hidden = !!S.claveAdmin;
+  if ($('mi-previa').hidden) return;
+  if (!$('mi-cultivo').options.length) {
+    $('mi-cultivo').innerHTML = opciones((S.datos.catalogos.cultivos || []).filter(function (c) { return c.activo !== false; }).sort(porNombre)
+      .map(function (c) { return { v: c.nombre, t: c.nombre }; }), MIGRACION_PRESET.cultivo);
+    $('mi-temporada').value = MIGRACION_PRESET.temporada; $('mi-cierre').value = MIGRACION_PRESET.cierre; $('mi-patron').value = MIGRACION_PRESET.patron;
+  }
+  const pr = prorratear();
+  const ciclos = {};
+  ciclosMigracion().forEach(function (c) { ciclos[c.tabla] = c; });
+  $('mi-tablas').innerHTML = '<thead><tr><th>Tabla v5</th><th>Nombre en v6</th><th>Superficie (ha)</th><th>Prorratear</th><th>Gastos</th><th>Total</th><th>Rendimiento (kg)</th><th>Ciclo</th></tr></thead><tbody>' +
+    M.tablas.map(function (t, i) {
+      const c = ciclos[t.v6];
+      return '<tr><td class="izq">' + esc(t.v5) + '</td>' +
+        '<td><input type="text" data-mi="v6" data-i="' + i + '" value="' + esc(t.v6) + '" maxlength="60"></td>' +
+        '<td><input type="number" data-mi="ha" data-i="' + i + '" value="' + esc(t.ha) + '" min="0" step="any"></td>' +
+        '<td><input type="checkbox" data-mi="prorrateo" data-i="' + i + '"' + (t.prorrateo ? ' checked' : '') + '></td>' +
+        '<td>' + t.n + '</td><td>' + mxn(t.total) + '</td>' +
+        '<td>' + (pr.r[t.v5] !== undefined ? num(pr.r[t.v5]) : '<span class="badge ambar">pendiente</span>') + '</td>' +
+        '<td class="izq" style="white-space:normal;min-width:220px">' + (c ? esc(c.nombre) + '<div class="ayuda">' + fmtFecha(c.fecha_apertura) + ' → ' + fmtFecha(c.fecha_cierre) + ' · cerrado</div>' : '<span class="ayuda">sin gastos: sin ciclo</span>') + '</td></tr>';
+    }).join('') + '</tbody>';
+  $('mi-prorrateo').textContent = pr.kg
+    ? 'Se reparten ' + num(pr.kg) + ' kg entre ' + num(pr.sumHa) + ' ha (tablas marcadas en "Prorratear"). La suma de la columna es exactamente el total.'
+    : 'Sin total de kilos: los ciclos quedan con rendimiento "pendiente de dato" y lo puedes llenar después en Ciclos.';
+
+  const ex = S.datos.catalogos;
+  const existeG = function (n) { return ex.grupos.some(function (g) { return norm(g.nombre) === norm(n); }); };
+  const nuevosG = M.grupos.filter(function (g) { return !existeG(g); }).length;
+  $('mi-catalogos').innerHTML =
+    '<div class="pl-resumen"><span class="badge gris">' + M.tablas.length + ' tablas</span><span class="badge gris">' + M.grupos.length + ' grupos (' + nuevosG + ' nuevos)</span>' +
+    '<span class="badge gris">' + M.cats.length + ' categorías</span><span class="badge gris">' + M.productos.length + ' productos</span></div>' +
+    '<p class="ayuda" style="margin-bottom:8px">Grupos y categorías se migran tal cual; si ya existen con el mismo nombre, se reutilizan. Los productos sin marcar se crean desactivados (no aparecen como sugerencia).</p>' +
+    '<div class="envoltura-tabla"><table class="tabla-comp"><thead><tr><th>Producto</th><th>Grupo › Categoría</th><th>Activo</th></tr></thead><tbody>' +
+    M.productos.map(function (p, i) {
+      return '<tr><td class="izq">' + esc(p.nombre) + (MIGRACION_PRESET.marcas.indexOf(norm(p.nombre)) >= 0 ? ' <span class="badge ambar">marca</span>' : '') + '</td>' +
+        '<td class="izq">' + esc(p.grupo) + ' › ' + esc(p.categoria) + '</td><td><input type="checkbox" data-mi="activo" data-i="' + i + '"' + (p.activo ? ' checked' : '') + '></td></tr>';
+    }).join('') + '</tbody></table></div>';
+
+  const total = round2(M.gastos.reduce(function (s, g) { return s + g.costo_total; }, 0));
+  $('mi-validacion').innerHTML =
+    '<div class="pl-resumen"><span class="badge ' + (M.errores.length ? 'rojo' : 'verde') + '">' + M.gastos.length + ' gastos válidos · ' + mxn(total) + '</span>' +
+    (M.errores.length ? '<span class="badge rojo">' + M.errores.length + ' con error</span>' : '') + '</div>' +
+    (M.errores.length ? '<div class="errores">' + M.errores.map(esc).join('<br>') + '</div><p class="ayuda">Corrige el CSV y vuelve a cargarlo. No se puede importar con errores.</p>' : '') +
+    (M.avisos.length ? '<div class="alerta aviso" style="margin-top:8px">' + M.avisos.map(esc).join('<br>') + '</div>' : '');
+  const btn = $('btn-migrar');
+  btn.disabled = M.importando || !!M.errores.length || !M.gastos.length || S.bloqueado;
+  btn.textContent = M.importando ? 'Importando…' : 'Importar ' + M.gastos.length + ' gastos (' + mxn(total) + ') en ' + Object.keys(ciclos).length + ' ciclos cerrados';
+}
+
+function editarCampoMigracion(e) {
+  const el = e.target;
+  if (!el.dataset || !el.dataset.mi) return;
+  const i = Number(el.dataset.i), k = el.dataset.mi;
+  if (k === 'activo') M.productos[i].activo = el.checked;
+  else if (k === 'prorrateo') M.tablas[i].prorrateo = el.checked;
+  else if (k === 'ha') M.tablas[i].ha = el.value === '' ? '' : Number(el.value);
+  else if (k === 'v6') M.tablas[i].v6 = el.value.trim();
+  if (e.type === 'change' || k === 'activo' || k === 'prorrateo') renderMigracion();
+}
+
+function confirmarMigracion() {
+  if (!S.claveAdmin) { aviso('Entra al modo admin para importar.', 'err'); return; }
+  const nombresV6 = M.tablas.map(function (t) { return norm(t.v6); });
+  if (nombresV6.some(function (n, i) { return !n || nombresV6.indexOf(n) !== i; })) { alerta('mi-alerta', 'Revisa los nombres en v6: no pueden quedar vacíos ni repetidos.', 'err'); return; }
+  const amb = S.datos.servidor && S.datos.servidor.ambiente;
+  abrirModal({
+    titulo: 'Importar migración del v5',
+    html: '<div class="aviso-cierre">Ambiente: <strong>' + esc(amb === 'produccion' ? 'PRODUCCIÓN' : 'SANDBOX') + '</strong>. Se crearán catálogos, ' +
+      ciclosMigracion().length + ' ciclos cerrados y ' + M.gastos.length + ' gastos (' + mxn(M.gastos.reduce(function (s, g) { return s + g.costo_total; }, 0)) + '). ' +
+      'Si algo falla a medias, puedes volver a importar: lo que ya se subió se omite.</div>' +
+      '<div class="fila c1"><div class="campo"><label class="etq" for="mi-confirma">Escribe MIGRAR para confirmar</label><input type="text" id="mi-confirma" autocomplete="off" autocapitalize="characters"></div></div>',
+    botones: [{ texto: 'Cancelar' }, { texto: 'Importar', clase: 'btn-prim', accion: function () {
+      if ($('mi-confirma').value.trim().toUpperCase() !== 'MIGRAR') { errorModal('Escribe MIGRAR para confirmar.'); return false; }
+      setTimeout(ejecutarMigracion, 0);
+    } }]
+  });
+}
+
+async function ejecutarMigracion() {
+  if (M.importando) return;
+  M.importando = true; renderMigracion();
+  alerta('mi-alerta', ''); $('mi-reporte').innerHTML = '';
+  const admin = { admin: S.claveAdmin };
+  const v6 = {};
+  M.tablas.forEach(function (t) { v6[t.v5] = t.v6; });
+  const paso = function (txt, pct) { $('mi-progreso').textContent = txt; barraCarga(pct); };
+  try {
+    paso('1/4 Catálogos…', 10);
+    const rc = await api('importarMigracion', { paso: 'catalogos',
+      tablas: M.tablas.map(function (t) { return { nombre: t.v6, extension: t.ha, unidad: 'ha' }; }),
+      grupos: M.grupos, categorias: M.cats, productos: M.productos }, admin);
+    paso('2/4 Ciclos…', 25);
+    const ciclos = ciclosMigracion();
+    const nombreCiclo = {};
+    ciclos.forEach(function (c) { nombreCiclo[c.tabla] = c.nombre; });
+    const rci = await api('importarMigracion', { paso: 'ciclos', ciclos: ciclos }, admin);
+    const lotes = [];
+    for (let i = 0; i < M.gastos.length; i += LOTE_MIGRACION) lotes.push(M.gastos.slice(i, i + LOTE_MIGRACION));
+    let nuevos = 0, omitidos = 0;
+    for (let i = 0; i < lotes.length; i++) {
+      paso('3/4 Gastos: lote ' + (i + 1) + ' de ' + lotes.length + '…', 30 + Math.round(60 * i / lotes.length));
+      const r = await api('importarMigracion', { paso: 'gastos', lote: String(i + 1), gastos: lotes[i].map(function (g) {
+        return { linea: g.linea, huella: g.huella, fecha: g.fecha, tabla: v6[g.tablaV5], ciclo: nombreCiclo[v6[g.tablaV5]], grupo: g.grupo,
+                 categoria: g.categoria, producto: g.producto, cantidad: g.cantidad, unidad: g.unidad, costo_unitario: g.costo_unitario,
+                 costo_total: g.costo_total, notas: g.notas };
+      }) }, admin);
+      nuevos += r.nuevos; omitidos += r.omitidos;
+    }
+    paso('4/4 Verificando totales…', 95);
+    const v = await api('importarMigracion', { paso: 'verificar' }, admin);
+    barraCarga(100);
+    reporteMigracion(rc, rci, nuevos, omitidos, v);
+    paso('Migración terminada.', 100);
+    cargarDatos(true);
+  } catch (e) {
+    barraCarga(100);
+    alerta('mi-alerta', 'La importación se detuvo: ' + msgErr(e) + ' Puedes corregir y volver a importar; lo que ya se subió se omite.', 'err');
+    $('mi-progreso').textContent = '';
+  } finally {
+    M.importando = false; renderMigracion();
+  }
+}
+
+function reporteMigracion(rc, rci, nuevos, omitidos, v) {
+  const csv = {};
+  M.tablas.forEach(function (t) { if (t.n) csv[t.v6] = { n: t.n, total: t.total }; });
+  const srv = {};
+  v.por_tabla.forEach(function (x) { srv[x.tabla] = x; });
+  let ok = true;
+  const filas = Object.keys(csv).sort().map(function (k) {
+    const s = srv[k] || { gastos: 0, total: 0 };
+    const cuadra = s.gastos === csv[k].n && Math.abs(s.total - csv[k].total) < 0.005;
+    if (!cuadra) ok = false;
+    return [k, csv[k].n, csv[k].total, s.gastos, s.total, cuadra];
+  });
+  const totCsv = round2(M.gastos.reduce(function (s, g) { return s + g.costo_total; }, 0));
+  M.reporte = filas;
+  $('mi-reporte').innerHTML = '<div class="alerta ' + (ok ? 'ok' : 'err') + '" style="margin-top:12px">' +
+    (ok ? '✅ Migración verificada: los totales del sistema cuadran al centavo con el CSV.' : '⚠ Hay diferencias entre el CSV y el sistema. Revisa la tabla.') + '</div>' +
+    '<div class="pl-resumen"><span class="badge gris">Tablas nuevas: ' + rc.tablas.nuevas + '</span><span class="badge gris">Grupos nuevos: ' + rc.grupos.nuevos + '</span>' +
+    '<span class="badge gris">Categorías nuevas: ' + rc.categorias.nuevas + '</span><span class="badge gris">Productos nuevos: ' + rc.productos.nuevos + '</span>' +
+    '<span class="badge gris">Ciclos nuevos: ' + rci.nuevos + ' (ya existían ' + rci.existentes + ')</span>' +
+    '<span class="badge verde">Gastos nuevos: ' + nuevos + '</span><span class="badge gris">Omitidos (ya estaban): ' + omitidos + '</span></div>' +
+    '<div class="envoltura-tabla"><table class="tabla-comp"><thead><tr><th>Tabla</th><th>Gastos CSV</th><th>Total CSV</th><th>Gastos sistema</th><th>Total sistema</th><th></th></tr></thead><tbody>' +
+    filas.map(function (f) { return '<tr><td class="izq">' + esc(f[0]) + '</td><td>' + f[1] + '</td><td>' + mxn(f[2]) + '</td><td>' + f[3] + '</td><td>' + mxn(f[4]) + '</td><td>' + (f[5] ? '✅' : '⚠') + '</td></tr>'; }).join('') +
+    '<tr class="total"><td>Total</td><td>' + M.gastos.length + '</td><td>' + mxn(totCsv) + '</td><td>' + v.gastos + '</td><td>' + mxn(v.total) + '</td><td>' + (ok ? '✅' : '⚠') + '</td></tr>' +
+    '</tbody></table></div><button class="btn btn-sec" type="button" id="btn-mi-reporte">⬇ Descargar reporte CSV</button>';
+  $('btn-mi-reporte').addEventListener('click', function () {
+    const celda = function (x) { return '"' + String(x).replace(/"/g, '""') + '"'; };
+    const txt = '﻿' + ['Tabla', 'Gastos CSV', 'Total CSV', 'Gastos sistema', 'Total sistema', 'Cuadra'].map(celda).join(',') + '\r\n' +
+      M.reporte.map(function (f) { return [f[0], f[1], f[2], f[3], f[4], f[5] ? 'Sí' : 'NO'].map(celda).join(','); }).join('\r\n');
+    const url = URL.createObjectURL(new Blob([txt], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a'); a.href = url; a.download = 'AgroControl_reporte_migracion_' + hoyMX() + '.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  });
+}
+
+// ═════════════════════════════════════════════════════════════════════
 //  CATÁLOGO
 // ═════════════════════════════════════════════════════════════════════
 const CAT_UI = {
@@ -2567,6 +2981,7 @@ function cambiarTab(nombreTab) {
   if (nombreTab === 'ciclos') renderCiclos();
   if (nombreTab === 'cultivos') renderCultivos();
   if (nombreTab === 'historicos') renderHistoricosSelector();
+  if (nombreTab === 'migracion') renderMigracion();
 }
 
 function renderTodo() {
@@ -2603,6 +3018,14 @@ function enlazarEventos() {
   $('btn-conexion').addEventListener('click', cambiarConexion);
   $('btn-admin').addEventListener('click', modoAdmin);
   $('btn-ir-ciclos').addEventListener('click', function () { cambiarTab('ciclos'); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+
+  // Migración v5
+  $('mi-archivos').addEventListener('change', leerArchivosMigracion);
+  $('panel-migracion').addEventListener('input', editarCampoMigracion);
+  $('panel-migracion').addEventListener('change', editarCampoMigracion);
+  ['mi-kg', 'mi-patron', 'mi-cierre', 'mi-temporada', 'mi-cultivo'].forEach(function (id) { $(id).addEventListener('change', renderMigracion); });
+  $('mi-kg').addEventListener('input', renderMigracion);
+  $('btn-migrar').addEventListener('click', confirmarMigracion);
 
   // Históricos
   $('hi-tabla').addEventListener('change', function () { cargarHistorico(false); });
