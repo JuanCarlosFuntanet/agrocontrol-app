@@ -303,6 +303,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
   .reg-der{flex-direction:row;justify-content:space-between;align-items:center;text-align:left}
   .cab-der{margin-left:0;width:100%;align-items:flex-start}
   .no-movil{display:none}
+  .tabs{-webkit-mask-image:linear-gradient(90deg,#000 85%,transparent);mask-image:linear-gradient(90deg,#000 85%,transparent);padding-right:24px}
   .solo-movil{display:block!important}
   .sync{justify-content:flex-start}
 }
@@ -568,7 +569,11 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
           </div>
           <div class="fila c2">
             <div class="campo"><label class="etq" for="mi-patron">Nombre de cada ciclo ({tabla} = nombre de la tabla)</label><input type="text" id="mi-patron" maxlength="120"></div>
-            <div class="campo"><label class="etq" for="mi-kg">Total cosechado (kg netos de silo) — se prorratea por ha</label><input type="number" id="mi-kg" min="0" step="any" inputmode="decimal" placeholder="Vacío = pendiente de dato"></div>
+            <div class="campo"><label class="etq" for="mi-kg">Total cosechado (kg netos de silo) — se prorratea por ha</label><input type="text" id="mi-kg" inputmode="decimal" placeholder="Ej: 2,172,920 · vacío = pendiente de dato" autocomplete="off"><div class="ayuda" id="mi-kg-eco"></div></div>
+          </div>
+          <div class="fila c2">
+            <div class="campo"><label class="etq" for="mi-precio">Precio de venta por kg ($, opcional)</label><input type="text" id="mi-precio" inputmode="decimal" placeholder="Ej: 0.72" autocomplete="off"><div class="ayuda" id="mi-precio-eco"></div></div>
+            <div class="campo"><div class="ayuda" style="margin-top:22px">Si repites la importación, se llenan el rendimiento y el precio de los ciclos migrados que estén vacíos. Lo que ya tenga valor no se cambia.</div></div>
           </div>
           <div class="envoltura-tabla"><table class="tabla-comp" id="mi-tablas"></table></div>
           <p class="ayuda" id="mi-prorrateo"></p>
@@ -612,7 +617,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5}
    Sin frameworks. Habla con el backend de Apps Script por POST (text/plain).
    ═════════════════════════════════════════════════════════════════════ */
 const API_VERSION = '1';
-const APP_VERSION = '6.0.0-f6';
+const APP_VERSION = '6.0.0';
 const TZ = 'America/Mexico_City';
 const MS_MARCA = 60000;       // revisión de cambios en el servidor
 const MS_COLA = 30000;        // reintento de la cola sin señal
@@ -1947,8 +1952,9 @@ async function aplicarPlantilla() {
     S.datos.catalogos.productos = r.catalogos.productos;
     indexar(); guardarCacheDatos(); renderTodo();
     const k = r.creados;
-    alerta('cu-alerta', 'Plantilla de ' + cultivo.nombre + ' aplicada: ' + k.grupos + ' grupos, ' + k.categorias + ' categorías y ' + k.productos + ' productos nuevos' +
-      (k.reactivados ? '; ' + k.reactivados + ' reactivados' : '') + '.', 'ok');
+    const plural = function (n, uno, varios) { return n + ' ' + (n === 1 ? uno : varios); };
+    alerta('cu-alerta', 'Plantilla de ' + cultivo.nombre + ' aplicada: ' + plural(k.grupos, 'grupo', 'grupos') + ', ' + plural(k.categorias, 'categoría', 'categorías') + ' y ' +
+      plural(k.productos, 'producto nuevo', 'productos nuevos') + (k.reactivados ? '; ' + plural(k.reactivados, 'reactivado', 'reactivados') : '') + '.', 'ok');
   } catch (e) {
     alerta('cu-alerta', msgErr(e), 'err');
   } finally {
@@ -2389,9 +2395,16 @@ function analizarMigracion() {
   renderMigracion();
 }
 
+/** "2,172,920" → 2172920 · "0.72" → 0.72 · "" → NaN (vacío) · texto no numérico → -1. Las comas son separador de miles. */
+function numeroFlexible(s) {
+  const t = String(s || '').replace(/[\s$]/g, '').replace(/,/g, '');
+  if (!t) return NaN;
+  return /^\d+(\.\d+)?$/.test(t) ? Number(t) : -1;
+}
+
 /** Reparte el total por hectárea con redondeo a kg enteros que suma exactamente el total. */
 function prorratear() {
-  const kg = Number($('mi-kg').value);
+  const kg = numeroFlexible($('mi-kg').value);
   const base = M.tablas.filter(function (t) { return t.prorrateo && t.n > 0 && Number(t.ha) > 0; });
   const sumHa = base.reduce(function (s, t) { return s + Number(t.ha); }, 0);
   const r = {};
@@ -2409,15 +2422,19 @@ function ciclosMigracion() {
   const pr = prorratear();
   const hoy = hoyMX();
   const patron = $('mi-patron').value || MIGRACION_PRESET.patron;
+  const precio = numeroFlexible($('mi-precio').value);
   return M.tablas.filter(function (t) { return t.n > 0; }).map(function (t) {
     const rend = pr.r[t.v5];
+    const conPrecio = precio > 0 && Number(t.ha) > 0;   // tablas sembradas (con superficie); T1 no se sembró
     let nota = 'Migrado desde AgroControl v5 el ' + hoy + '.';
     if (rend !== undefined) nota += ' Rendimiento prorrateado por hectárea: ' + num(pr.kg) + ' kg netos de silo entre ' + num(pr.sumHa) + ' ha (esta tabla: ' + num(t.ha) + ' ha).';
     else if (t.nota) nota += ' ' + t.nota;
     else nota += ' Rendimiento: pendiente de dato.';
     return { tabla: t.v6, cultivo: $('mi-cultivo').value, temporada: $('mi-temporada').value.trim(), nombre: patron.replace('{tabla}', t.v6),
              fecha_apertura: t.primera, fecha_cierre: $('mi-cierre').value, rendimiento: rend === undefined ? '' : rend,
-             unidad_rendimiento: MIGRACION_PRESET.unidad, notas: nota };
+             unidad_rendimiento: MIGRACION_PRESET.unidad, notas: nota, precio_venta_unidad: conPrecio ? precio : '',
+             nota_resultados: (rend !== undefined ? 'Rendimiento prorrateado por hectárea: ' + num(pr.kg) + ' kg entre ' + num(pr.sumHa) + ' ha (esta tabla: ' + num(t.ha) + ' ha).' : '') +
+               (conPrecio ? ' Precio de venta: $' + precio + ' por kg.' : '') + ' Aplicado al reimportar la migración.' };
   });
 }
 
@@ -2433,7 +2450,7 @@ function renderMigracion() {
   const pr = prorratear();
   const ciclos = {};
   ciclosMigracion().forEach(function (c) { ciclos[c.tabla] = c; });
-  $('mi-tablas').innerHTML = '<thead><tr><th>Tabla v5</th><th>Nombre en v6</th><th>Superficie (ha)</th><th>Prorratear</th><th>Gastos</th><th>Total</th><th>Rendimiento (kg)</th><th>Ciclo</th></tr></thead><tbody>' +
+  $('mi-tablas').innerHTML = '<thead><tr><th>Tabla v5</th><th>Nombre en v6</th><th>Superficie (ha)</th><th>Prorratear</th><th>Gastos</th><th>Total</th><th>Rendimiento (kg)</th><th>Ingreso</th><th>Ciclo</th></tr></thead><tbody>' +
     M.tablas.map(function (t, i) {
       const c = ciclos[t.v6];
       return '<tr><td class="izq">' + esc(t.v5) + '</td>' +
@@ -2442,8 +2459,13 @@ function renderMigracion() {
         '<td><input type="checkbox" data-mi="prorrateo" data-i="' + i + '"' + (t.prorrateo ? ' checked' : '') + '></td>' +
         '<td>' + t.n + '</td><td>' + mxn(t.total) + '</td>' +
         '<td>' + (pr.r[t.v5] !== undefined ? num(pr.r[t.v5]) : '<span class="badge ambar">pendiente</span>') + '</td>' +
+        '<td>' + (c && c.rendimiento !== '' && c.precio_venta_unidad !== '' ? mxn(round2(c.rendimiento * c.precio_venta_unidad)) : '—') + '</td>' +
         '<td class="izq" style="white-space:normal;min-width:220px">' + (c ? esc(c.nombre) + '<div class="ayuda">' + fmtFecha(c.fecha_apertura) + ' → ' + fmtFecha(c.fecha_cierre) + ' · cerrado</div>' : '<span class="ayuda">sin gastos: sin ciclo</span>') + '</td></tr>';
     }).join('') + '</tbody>';
+  const kgTxt = $('mi-kg').value.trim(), kgNum = numeroFlexible(kgTxt), prTxt = $('mi-precio').value.trim(), prNum = numeroFlexible(prTxt);
+  $('mi-kg-eco').textContent = !kgTxt ? '' : kgNum > 0 ? '= ' + num(kgNum) + ' kg' : '⚠ No entiendo este número. Escríbelo solo con dígitos y comas, por ejemplo 2,172,920.';
+  $('mi-precio-eco').textContent = !prTxt ? '' : prNum > 0 ? '= $' + prNum + ' por kg' : '⚠ No entiendo este precio. Ejemplo: 0.72';
+  M.numerosInvalidos = !!((kgTxt && !(kgNum > 0)) || (prTxt && !(prNum > 0)));
   $('mi-prorrateo').textContent = pr.kg
     ? 'Se reparten ' + num(pr.kg) + ' kg entre ' + num(pr.sumHa) + ' ha (tablas marcadas en "Prorratear"). La suma de la columna es exactamente el total.'
     : 'Sin total de kilos: los ciclos quedan con rendimiento "pendiente de dato" y lo puedes llenar después en Ciclos.';
@@ -2468,7 +2490,7 @@ function renderMigracion() {
     (M.errores.length ? '<div class="errores">' + M.errores.map(esc).join('<br>') + '</div><p class="ayuda">Corrige el CSV y vuelve a cargarlo. No se puede importar con errores.</p>' : '') +
     (M.avisos.length ? '<div class="alerta aviso" style="margin-top:8px">' + M.avisos.map(esc).join('<br>') + '</div>' : '');
   const btn = $('btn-migrar');
-  btn.disabled = M.importando || !!M.errores.length || !M.gastos.length || S.bloqueado;
+  btn.disabled = M.importando || !!M.errores.length || !M.gastos.length || S.bloqueado || M.numerosInvalidos;
   btn.textContent = M.importando ? 'Importando…' : 'Importar ' + M.gastos.length + ' gastos (' + mxn(total) + ') en ' + Object.keys(ciclos).length + ' ciclos cerrados';
 }
 
@@ -2493,6 +2515,11 @@ function confirmarMigracion() {
     html: '<div class="aviso-cierre">Ambiente: <strong>' + esc(amb === 'produccion' ? 'PRODUCCIÓN' : 'SANDBOX') + '</strong>. Se crearán catálogos, ' +
       ciclosMigracion().length + ' ciclos cerrados y ' + M.gastos.length + ' gastos (' + mxn(M.gastos.reduce(function (s, g) { return s + g.costo_total; }, 0)) + '). ' +
       'Si algo falla a medias, puedes volver a importar: lo que ya se subió se omite.</div>' +
+      (function () {
+        const kg = numeroFlexible($('mi-kg').value), pr = numeroFlexible($('mi-precio').value);
+        return '<p style="font-size:14px;line-height:1.6;margin-bottom:10px">Total de kg a prorratear: <strong>' + (kg > 0 ? num(kg) + ' kg' : 'NINGUNO (quedará pendiente de dato)') + '</strong><br>' +
+          'Precio por kg: <strong>' + (pr > 0 ? '$' + pr : 'ninguno') + '</strong></p>';
+      })() +
       '<div class="fila c1"><div class="campo"><label class="etq" for="mi-confirma">Escribe MIGRAR para confirmar</label><input type="text" id="mi-confirma" autocomplete="off" autocapitalize="characters"></div></div>',
     botones: [{ texto: 'Cancelar' }, { texto: 'Importar', clase: 'btn-prim', accion: function () {
       if ($('mi-confirma').value.trim().toUpperCase() !== 'MIGRAR') { errorModal('Escribe MIGRAR para confirmar.'); return false; }
@@ -2565,7 +2592,9 @@ function reporteMigracion(rc, rci, nuevos, omitidos, v) {
     '<div class="pl-resumen"><span class="badge gris">Tablas nuevas: ' + rc.tablas.nuevas + '</span><span class="badge gris">Grupos nuevos: ' + rc.grupos.nuevos + '</span>' +
     '<span class="badge gris">Categorías nuevas: ' + rc.categorias.nuevas + '</span><span class="badge gris">Productos nuevos: ' + rc.productos.nuevos + '</span>' +
     '<span class="badge gris">Ciclos nuevos: ' + rci.nuevos + ' (ya existían ' + rci.existentes + ')</span>' +
+    (rci.actualizados ? '<span class="badge verde">Ciclos con rendimiento/precio actualizados: ' + rci.actualizados + '</span>' : '') +
     '<span class="badge verde">Gastos nuevos: ' + nuevos + '</span><span class="badge gris">Omitidos (ya estaban): ' + omitidos + '</span></div>' +
+    ((rci.conflictos || []).length ? '<div class="alerta aviso">' + rci.conflictos.map(esc).join('<br>') + '</div>' : '') +
     '<div class="envoltura-tabla"><table class="tabla-comp"><thead><tr><th>Tabla</th><th>Gastos CSV</th><th>Total CSV</th><th>Gastos sistema</th><th>Total sistema</th><th></th></tr></thead><tbody>' +
     filas.map(function (f) { return '<tr><td class="izq">' + esc(f[0]) + '</td><td>' + f[1] + '</td><td>' + mxn(f[2]) + '</td><td>' + f[3] + '</td><td>' + mxn(f[4]) + '</td><td>' + (f[5] ? '✅' : '⚠') + '</td></tr>'; }).join('') +
     '<tr class="total"><td>Total</td><td>' + M.gastos.length + '</td><td>' + mxn(totCsv) + '</td><td>' + v.gastos + '</td><td>' + mxn(v.total) + '</td><td>' + (ok ? '✅' : '⚠') + '</td></tr>' +
@@ -3023,8 +3052,9 @@ function enlazarEventos() {
   $('mi-archivos').addEventListener('change', leerArchivosMigracion);
   $('panel-migracion').addEventListener('input', editarCampoMigracion);
   $('panel-migracion').addEventListener('change', editarCampoMigracion);
-  ['mi-kg', 'mi-patron', 'mi-cierre', 'mi-temporada', 'mi-cultivo'].forEach(function (id) { $(id).addEventListener('change', renderMigracion); });
+  ['mi-kg', 'mi-precio', 'mi-patron', 'mi-cierre', 'mi-temporada', 'mi-cultivo'].forEach(function (id) { $(id).addEventListener('change', renderMigracion); });
   $('mi-kg').addEventListener('input', renderMigracion);
+  $('mi-precio').addEventListener('input', renderMigracion);
   $('btn-migrar').addEventListener('click', confirmarMigracion);
 
   // Históricos
